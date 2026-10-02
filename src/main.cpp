@@ -19,7 +19,8 @@ int main() {
 
         std::string command;
         input >> command;
-
+        
+        // SET 
         if (command == "SET") {
             std::string key;
             std::string value;
@@ -31,9 +32,11 @@ int main() {
 
             store.set(key, value);
             std::cout << "OK\n";
-        } else if (command == "GET") {
+        } 
+            
+        // GET
+        else if (command == "GET") {
             std::string key;
-
             if (!(input >> key)) {
                 std::cout << "ERROR: use GET <key>\n";
                 continue;
@@ -46,14 +49,34 @@ int main() {
             } else {
                 std::cout << "NOT_FOUND\n";
             }
-        } else if (command == "EXIT") {
+        }
+        
+        // DEL 
+        else if (command == "DEL") {
+            std::string key;
+
+            if (!(input >> key)) {
+                std::cout << "ERROR: use DEL <key>\n";
+                continue;
+            }
+
+            bool deleted = store.del(key);
+
+            if (deleted) {
+                std::cout << "OK\n";
+            } else {
+                std::cout << "NOT_FOUND\n";
+            }
+        } 
+            
+        else if (command == "EXIT") {
             std::cout << "Goodbye\n";
             break;
-        } else if (command.empty()) {
-            continue;
-        } else {
-            std::cout << "ERROR: unknown command\n";
-        }
+            } else if (command.empty()) {
+                continue;
+            } else {
+                std::cout << "ERROR: unknown command\n";
+            }
     }
 
     return 0;
