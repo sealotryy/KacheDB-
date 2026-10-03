@@ -23,9 +23,18 @@ int main() {
         // SET 
         if (command == "SET") {
             std::string key;
-            std::string value;
+            
+            // input >> key reads the key
+            if (!(input >> key)) {
+                std::cout << "ERROR: use SET <key> <value>\n";
+                continue;
+            }
 
-            if (!(input >> key >> value)) {
+            // input >> std::ws discards leading whitespace from input stream
+            std::string value;
+            // reads all remaining text into value, so we can work w longer strings instead of single words
+            std::getline(input >> std::ws, value);
+            if (value.empty()) {
                 std::cout << "ERROR: use SET <key> <value>\n";
                 continue;
             }
