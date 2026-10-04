@@ -29,3 +29,7 @@ add_executable(kv_store_tests
 target_link_libraries(kv_store_tests PRIVATE kv_store_lib)
 
 add_test(NAME kv_store_tests COMMAND kv_store_tests)
+
+add_executable(tcp_server
+    src/tcp_server.cpp
+)
