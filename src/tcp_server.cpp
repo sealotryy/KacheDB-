@@ -23,8 +23,8 @@ int main() {
     address.sin_port = htons(port);
 
     if (bind(server_fd,
-             reinterpret_cast<sockaddr*>(&address),
-             sizeof(address)) == -1) {
+        reinterpret_cast<sockaddr*>(&address),
+        sizeof(address)) == -1) {
         std::cerr << "bind failed: " << std::strerror(errno) << "\n";
         close(server_fd);
         return 1;
