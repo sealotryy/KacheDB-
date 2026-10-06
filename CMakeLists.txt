@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(kv_store_lib
     src/kv_store.cpp
+    src/command_handler.cpp
 )
 
 target_include_directories(kv_store_lib PUBLIC include)
@@ -33,3 +34,5 @@ add_test(NAME kv_store_tests COMMAND kv_store_tests)
 add_executable(tcp_server
     src/tcp_server.cpp
 )
+
+target_link_libraries(tcp_server PRIVATE kv_store_lib)

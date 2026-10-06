@@ -1,91 +1,38 @@
 #include <iostream>
-#include <sstream>
 #include <string>
 
+#include "command_handler.h"
 #include "kv_store.h"
 
 int main() {
+    // This one store stays alive for the entire terminal session.
     KvStore store;
+
+    // Holds one line that the user types.
     std::string line;
+
+    std::cout << "Simple KV store\n";
+    std::cout << "Commands: SET <key> <value>, GET <key>, DEL <key>, EXIT\n";
 
     while (true) {
         std::cout << "> ";
 
+        // Read one full command line, such as: SET name Alex
+        // Stop cleanly if the user presses Ctrl+D / input ends.
         if (!std::getline(std::cin, line)) {
             break;
         }
 
-        std::istringstream input(line);
-
-        std::string command;
-        input >> command;
-        
-        // SET 
-        if (command == "SET") {
-            std::string key;
-            
-            // input >> key reads the key
-            if (!(input >> key)) {
-                std::cout << "ERROR: use SET <key> <value>\n";
-                continue;
-            }
-
-            // input >> std::ws discards leading whitespace from input stream
-            std::string value;
-            // reads all remaining text into value, so we can work w longer strings instead of single words
-            std::getline(input >> std::ws, value);
-            if (value.empty()) {
-                std::cout << "ERROR: use SET <key> <value>\n";
-                continue;
-            }
-
-            store.set(key, value);
-            std::cout << "OK\n";
-        } 
-            
-        // GET
-        else if (command == "GET") {
-            std::string key;
-            if (!(input >> key)) {
-                std::cout << "ERROR: use GET <key>\n";
-                continue;
-            }
-
-            auto value = store.get(key);
-
-            if (value.has_value()) {
-                std::cout << value.value() << "\n";
-            } else {
-                std::cout << "NOT_FOUND\n";
-            }
-        }
-        
-        // DEL 
-        else if (command == "DEL") {
-            std::string key;
-
-            if (!(input >> key)) {
-                std::cout << "ERROR: use DEL <key>\n";
-                continue;
-            }
-
-            bool deleted = store.del(key);
-
-            if (deleted) {
-                std::cout << "OK\n";
-            } else {
-                std::cout << "NOT_FOUND\n";
-            }
-        } 
-            
-        else if (command == "EXIT") {
+        // EXIT is handled by the terminal program itself because it controls
+        // whether this interactive program keeps running.
+        if (line == "EXIT") {
             std::cout << "Goodbye\n";
             break;
-            } else if (command.empty()) {
-                continue;
-            } else {
-                std::cout << "ERROR: unknown command\n";
-            }
+        }
+
+        // Ask the shared command handler to parse and execute SET/GET/DEL.
+        // It returns the exact response text to show the user.
+        std::cout << execute_command(store, line);
     }
 
     return 0;
