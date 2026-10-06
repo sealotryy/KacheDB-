@@ -1,32 +1,65 @@
 #include <cassert>
 #include <iostream>
+#include <string>
 
 #include "kv_store.h"
 
-int main() {
+void test_missing_key_returns_empty() {
     KvStore store;
 
-    // A new store should not contain a key we never set.
-    assert(!store.get("name").has_value());
+    std::optional<std::string> value = store.get("missing");
 
-    // SET should make GET return the stored value.
+    assert(!value.has_value());
+}
+
+void test_set_then_get_returns_value() {
+    KvStore store;
+
     store.set("name", "Alex");
-    auto name = store.get("name");
-    assert(name.has_value());
-    assert(name.value() == "Alex");
 
-    // SET on the same key should overwrite its old value.
-    store.set("name", "Jordan");
-    name = store.get("name");
-    assert(name.has_value());
-    assert(name.value() == "Jordan");
+    std::optional<std::string> value = store.get("name");
 
-    // DEL should report success and remove the key.
-    assert(store.del("name"));
+    assert(value.has_value());
+    assert(value.value() == "Alex");
+}
+
+void test_set_overwrites_existing_value() {
+    KvStore store;
+
+    store.set("name", "Alex");
+    store.set("name", "Sam");
+
+    std::optional<std::string> value = store.get("name");
+
+    assert(value.has_value());
+    assert(value.value() == "Sam");
+}
+
+void test_delete_existing_key_returns_true_and_removes_key() {
+    KvStore store;
+
+    store.set("name", "Alex");
+
+    bool was_deleted = store.del("name");
+
+    assert(was_deleted);
     assert(!store.get("name").has_value());
+}
 
-    // Deleting a missing key should report false.
-    assert(!store.del("name"));
+void test_delete_missing_key_returns_false() {
+    KvStore store;
+
+    bool was_deleted = store.del("missing");
+
+    assert(!was_deleted);
+}
+
+int main() {
+    test_missing_key_returns_empty();
+    test_set_then_get_returns_value();
+    test_set_overwrites_existing_value();
+    test_delete_existing_key_returns_true_and_removes_key();
+    test_delete_missing_key_returns_false();
 
     std::cout << "All KvStore tests passed.\n";
     return 0;
