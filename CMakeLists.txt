@@ -31,6 +31,14 @@ target_link_libraries(kv_store_tests PRIVATE kv_store_lib)
 
 add_test(NAME kv_store_tests COMMAND kv_store_tests)
 
+add_executable(command_handler_tests
+    tests/command_handler_test.cpp
+)
+
+target_link_libraries(command_handler_tests PRIVATE kv_store_lib)
+
+add_test(NAME command_handler_tests COMMAND command_handler_tests)
+
 add_executable(tcp_server
     src/tcp_server.cpp
 )
