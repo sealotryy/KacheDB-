@@ -4,21 +4,26 @@
 #include <iostream>
 #include <netinet/in.h>
 #include <string>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <unordered_map>
+#include <vector>
 
 #include "command_handler.h"
 #include "kv_store.h"
 
 namespace {
 
-// send() may write fewer bytes than requested, so keep sending until the
-// entire response is sent or an error occurs.
+constexpr int port = 6379;
+constexpr std::size_t buffer_size = 1024;
+constexpr std::size_t max_command_size = 4096;
+
 bool send_all(int client_fd, const std::string& message) {
     std::size_t total_sent = 0;
 
     while (total_sent < message.size()) {
-        ssize_t bytes_sent = send(
+        const ssize_t bytes_sent = send(
             client_fd,
             message.data() + total_sent,
             message.size() - total_sent,
@@ -36,22 +41,33 @@ bool send_all(int client_fd, const std::string& message) {
     return true;
 }
 
+void close_client(
+    std::vector<pollfd>& poll_fds,
+    std::unordered_map<int, std::string>& pending_by_client,
+    std::size_t index
+) {
+    const int client_fd = poll_fds[index].fd;
+
+    std::cout << "Client disconnected.\n";
+    close(client_fd);
+    pending_by_client.erase(client_fd);
+
+    // Erase the client from the poll list. Index 0 is always server_fd.
+    poll_fds.erase(poll_fds.begin() + static_cast<long>(index));
+}
+
 }  // namespace
 
 int main() {
-    constexpr int port = 6379;
-
-    // One store for the lifetime of this server process.
     KvStore store;
 
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    const int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_fd == -1) {
         std::cerr << "socket failed: " << std::strerror(errno) << "\n";
         return 1;
     }
 
-    // Allows a quick restart after a recently closed connection.
     int reuse_address = 1;
     if (setsockopt(
             server_fd,
@@ -89,28 +105,66 @@ int main() {
     std::cout << "Listening on 127.0.0.1:" << port << "\n";
     std::cout << "Press Ctrl+C to stop the server.\n";
 
-    // Accept clients one at a time.
+    // Element 0 is permanently the listening socket.
+    std::vector<pollfd> poll_fds;
+    poll_fds.push_back({server_fd, POLLIN, 0});
+
+    // Each client needs an independent incomplete-command buffer.
+    std::unordered_map<int, std::string> pending_by_client;
+
     while (true) {
-        std::cout << "Waiting for a client...\n";
+        const int ready_count = poll(
+            poll_fds.data(),
+            static_cast<nfds_t>(poll_fds.size()),
+            -1
+        );
 
-        int client_fd = accept(server_fd, nullptr, nullptr);
+        if (ready_count == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
 
-        if (client_fd == -1) {
-            std::cerr << "accept failed: " << std::strerror(errno) << "\n";
-            continue;
+            std::cerr << "poll failed: " << std::strerror(errno) << "\n";
+            break;
         }
 
-        std::cout << "Client connected!\n";
+        // A new connection is waiting on the listening socket.
+        if ((poll_fds[0].revents & POLLIN) != 0) {
+            const int client_fd = accept(server_fd, nullptr, nullptr);
 
-        // This belongs to one client connection. It preserves a partial
-        // command if TCP delivers it across multiple recv() calls.
-        std::string pending;
-        char buffer[1024];
-        bool client_ok = true;
+            if (client_fd == -1) {
+                std::cerr << "accept failed: " << std::strerror(errno) << "\n";
+            } else {
+                poll_fds.push_back({client_fd, POLLIN, 0});
+                pending_by_client.emplace(client_fd, "");
 
-        // Keep reading commands until this client disconnects or errors.
-        while (client_ok) {
-            ssize_t bytes_received = recv(
+                std::cout << "Client connected!\n";
+            }
+        }
+
+        // Start at index 1 because index 0 is server_fd.
+        // Count backward because close_client() erases entries.
+        for (std::size_t i = poll_fds.size(); i-- > 1;) {
+            const short events = poll_fds[i].revents;
+
+            if (events == 0) {
+                continue;
+            }
+
+            const int client_fd = poll_fds[i].fd;
+
+            // Error or hang-up: close this client.
+            if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                close_client(poll_fds, pending_by_client, i);
+                continue;
+            }
+
+            if ((events & POLLIN) == 0) {
+                continue;
+            }
+
+            char buffer[buffer_size];
+            const ssize_t bytes_received = recv(
                 client_fd,
                 buffer,
                 sizeof(buffer),
@@ -118,36 +172,46 @@ int main() {
             );
 
             if (bytes_received == 0) {
-                std::cout << "Client disconnected.\n";
-                break;
+                close_client(poll_fds, pending_by_client, i);
+                continue;
             }
 
             if (bytes_received == -1) {
                 std::cerr << "recv failed: " << std::strerror(errno) << "\n";
-                break;
+                close_client(poll_fds, pending_by_client, i);
+                continue;
             }
 
-            // Append exactly the bytes recv() returned.
+            std::string& pending = pending_by_client.at(client_fd);
             pending.append(
                 buffer,
                 static_cast<std::size_t>(bytes_received)
             );
 
-            // Process every complete command in the input buffer.
+            // Reject unfinished commands that exceed the protocol limit.
+            if (pending.size() > max_command_size) {
+                send_all(client_fd, "ERROR: command too long\n");
+                close_client(poll_fds, pending_by_client, i);
+                continue;
+            }
+
+            bool client_ok = true;
             std::size_t newline_pos;
+
+            // One recv() may contain zero, one, or many command lines.
             while ((newline_pos = pending.find('\n')) != std::string::npos) {
                 std::string command = pending.substr(0, newline_pos);
                 pending.erase(0, newline_pos + 1);
 
-                // Let both Unix ("\n") and Windows ("\r\n") clients work.
+                // Accept both Unix LF and Windows CRLF line endings.
                 if (!command.empty() && command.back() == '\r') {
                     command.pop_back();
                 }
 
                 std::cout << "Received: " << command << "\n";
 
-                std::string response = execute_command(store, command);
-                response += '\n';
+                // execute_command() already includes a trailing newline.
+                const std::string response = execute_command(store, command);
 
                 std::cout << "Responding with: " << response;
 
@@ -156,12 +220,17 @@ int main() {
                     break;
                 }
             }
-        }
 
-        close(client_fd);
-        std::cout << "Client connection closed.\n";
+            if (!client_ok) {
+                close_client(poll_fds, pending_by_client, i);
+            }
+        }
     }
 
-    close(server_fd);
+    // Reached only after a fatal poll() error.
+    for (const pollfd& entry : poll_fds) {
+        close(entry.fd);
+    }
+
     return 0;
 }
