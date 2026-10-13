@@ -12,7 +12,7 @@ int main() {
     std::string line;
 
     std::cout << "Simple KV store\n";
-    std::cout << "Commands: SET <key> <value>, GET <key>, DEL <key>, EXIT\n";
+    std::cout << "Commands: SET <key> <value>, SETEX <key> <seconds> <value>, GET <key>, TTL <key>, DEL <key>, EXIT\n";
 
     while (true) {
         std::cout << "> ";
